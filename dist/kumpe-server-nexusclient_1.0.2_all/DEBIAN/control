@@ -1,0 +1,10 @@
+Package: kumpe-server-nexusclient
+Version: 1.0.2
+Section: admin
+Priority: optional
+Architecture: all
+Maintainer: KumpeApps <helpdesk@kumpeapps.com>
+Depends: bash, python3, curl, ca-certificates, apt
+Description: Configure host to use KumpeApps Nexus APT/Docker/PyPI proxies
+ This package installs KumpeApps Nexus client configuration scripts.
+ On install/upgrade, it configures APT sources and Nexus client policies.
