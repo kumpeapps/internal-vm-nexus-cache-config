@@ -242,15 +242,10 @@ rewrite_image_ref() {{
 run_compose_with_rewrite() {{
   local -a compose_args=(\"$@\")
   local -a global_opts=()
-  local -a compose_cmd_opts=()
-  local -a compose_files=()
   local -a subcmd_args=()
   local subcmd=\"\"
   local idx=0
-  local j=0
   local token
-  local compose_file
-  local has_file_flag=\"false\"
   local config_json
   local override_file
 
@@ -273,43 +268,7 @@ run_compose_with_rewrite() {{
     exec \"$REAL_DOCKER_BIN\" compose \"${{compose_args[@]}}\"
   fi
 
-  compose_cmd_opts=(\"${{global_opts[@]}}\")
-  for (( j=0; j<${{#global_opts[@]}}; j++ )); do
-    token=\"${{global_opts[$j]}}\"
-    case \"$token\" in
-      -f|--file)
-        has_file_flag=\"true\"
-        ((j++))
-        ;;
-      --file=*)
-        has_file_flag=\"true\"
-        ;;
-    esac
-  done
-
-  if [[ \"$has_file_flag\" != \"true\" ]]; then
-    for compose_file in compose.yaml compose.yml docker-compose.yaml docker-compose.yml; do
-      if [[ -f \"$compose_file\" ]]; then
-        compose_files+=(\"$compose_file\")
-        break
-      fi
-    done
-
-    for compose_file in compose.override.yaml compose.override.yml docker-compose.override.yaml docker-compose.override.yml; do
-      if [[ -f \"$compose_file\" ]]; then
-        compose_files+=(\"$compose_file\")
-      fi
-    done
-
-    if (( ${{#compose_files[@]}} > 0 )); then
-      compose_cmd_opts+=(--project-directory \"$PWD\")
-      for compose_file in \"${{compose_files[@]}}\"; do
-        compose_cmd_opts+=(-f \"$compose_file\")
-      done
-    fi
-  fi
-
-  config_json=\"$($REAL_DOCKER_BIN compose \"${{compose_cmd_opts[@]}}\" config --format json 2>/dev/null || true)\"
+  config_json=\"$($REAL_DOCKER_BIN compose \"${{global_opts[@]}}\" config --format json 2>/dev/null || true)\"
   if [[ -z \"$config_json\" ]]; then
     exec \"$REAL_DOCKER_BIN\" compose \"${{compose_args[@]}}\"
   fi
@@ -368,7 +327,7 @@ __NEXUS_COMPOSE_REWRITE_PY__
     sed -n '1,120p' \"$override_file\" >&2
   fi
 
-  exec \"$REAL_DOCKER_BIN\" compose \"${{compose_cmd_opts[@]}}\" -f \"$override_file\" \"$subcmd\" \"${{subcmd_args[@]}}\"
+  exec \"$REAL_DOCKER_BIN\" compose \"${{global_opts[@]}}\" -f \"$override_file\" \"$subcmd\" \"${{subcmd_args[@]}}\"
 }}
 
 if [[ \"${{1:-}}\" == \"compose\" ]]; then

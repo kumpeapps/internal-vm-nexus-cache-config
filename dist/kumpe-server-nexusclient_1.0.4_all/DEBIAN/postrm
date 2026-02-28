@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${1:-}" == "remove" || "${1:-}" == "purge" ]]; then
+  python3 - <<'PY' || true
+from pathlib import Path
+
+wrapper_path = Path('/usr/local/bin/docker')
+backup_path = Path('/usr/local/bin/docker.original-pre-nexus-wrapper')
+marker = b'# nexus-docker-pull-wrapper'
+system_docker_path = Path('/usr/bin/docker')
+system_backup_path = Path('/usr/bin/docker.original-pre-nexus-wrapper')
+system_shim_marker = b'# nexus-docker-shim'
+
+if wrapper_path.exists() and not wrapper_path.is_symlink():
+  existing = wrapper_path.read_bytes()
+  if marker in existing:
+    if backup_path.exists():
+      wrapper_path.write_bytes(backup_path.read_bytes())
+      backup_path.unlink()
+      wrapper_path.chmod(0o755)
+    else:
+      wrapper_path.unlink()
+
+if system_backup_path.exists():
+  if not system_docker_path.exists() or system_docker_path.is_symlink():
+    system_docker_path.write_bytes(system_backup_path.read_bytes())
+    system_backup_path.unlink()
+    system_docker_path.chmod(0o755)
+  else:
+    existing_system = system_docker_path.read_bytes()
+    if system_shim_marker in existing_system:
+      system_docker_path.write_bytes(system_backup_path.read_bytes())
+      system_backup_path.unlink()
+      system_docker_path.chmod(0o755)
+
+hosts_path = Path('/etc/hosts')
+if hosts_path.exists():
+  start = '# BEGIN nexus-client-registry-blocks'
+  end = '# END nexus-client-registry-blocks'
+  content = hosts_path.read_text(encoding='utf-8')
+  if start in content and end in content:
+    pre = content.split(start)[0].rstrip('\n')
+    post = content.split(end, 1)[1].lstrip('\n')
+    merged = '\n'.join([x for x in [pre, post] if x]).rstrip('\n')
+    hosts_path.write_text((merged + '\n') if merged else '', encoding='utf-8')
+PY
+fi

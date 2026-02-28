@@ -61,6 +61,9 @@ from pathlib import Path
 wrapper_path = Path('/usr/local/bin/docker')
 backup_path = Path('/usr/local/bin/docker.original-pre-nexus-wrapper')
 marker = b'# nexus-docker-pull-wrapper'
+system_docker_path = Path('/usr/bin/docker')
+system_backup_path = Path('/usr/bin/docker.original-pre-nexus-wrapper')
+system_shim_marker = b'# nexus-docker-shim'
 
 if wrapper_path.exists() and not wrapper_path.is_symlink():
   existing = wrapper_path.read_bytes()
@@ -71,6 +74,18 @@ if wrapper_path.exists() and not wrapper_path.is_symlink():
       wrapper_path.chmod(0o755)
     else:
       wrapper_path.unlink()
+
+if system_backup_path.exists():
+  if not system_docker_path.exists() or system_docker_path.is_symlink():
+    system_docker_path.write_bytes(system_backup_path.read_bytes())
+    system_backup_path.unlink()
+    system_docker_path.chmod(0o755)
+  else:
+    existing_system = system_docker_path.read_bytes()
+    if system_shim_marker in existing_system:
+      system_docker_path.write_bytes(system_backup_path.read_bytes())
+      system_backup_path.unlink()
+      system_docker_path.chmod(0o755)
 
 hosts_path = Path('/etc/hosts')
 if hosts_path.exists():
