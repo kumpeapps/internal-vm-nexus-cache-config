@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${1:-}" == "configure" ]]; then
+  BASE_DIR="/usr/lib/kumpe-server-nexusclient"
+
+  "${BASE_DIR}/set-nexus-apt-sources.sh"
+  "${BASE_DIR}/configure-nexus-clients.sh" --block-direct-registries --install-docker-wrapper
+fi
