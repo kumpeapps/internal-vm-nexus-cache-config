@@ -51,7 +51,8 @@ Notes:
   - Docker endpoints can be full URLs (https://.../repository/docker) or host:port (http assumed).
   - Docker registry mirrors only work with registry-root endpoints (no path component).
   - Docker CLI cannot pull through Nexus path endpoints; use a dedicated Nexus Docker connector/vhost (host[:port]).
-  - Wrapper mode rewrites only `docker pull`; all other docker commands are passed through unchanged.
+  - Wrapper mode rewrites pulls only: `docker pull`, `docker compose pull`, and image pulls triggered by `docker compose up`.
+  - Other Docker/Compose commands are passed through unchanged.
 EOF
 }
 
@@ -239,10 +240,15 @@ rewrite_image_ref() {{
 run_compose_with_rewrite() {{
   local -a compose_args=(\"$@\")
   local -a global_opts=()
+  local -a compose_cmd_opts=()
+  local -a compose_files=()
   local -a subcmd_args=()
   local subcmd=\"\"
   local idx=0
+  local j=0
   local token
+  local compose_file
+  local has_file_flag=\"false\"
   local config_json
   local override_file
 
@@ -265,7 +271,43 @@ run_compose_with_rewrite() {{
     exec \"$REAL_DOCKER_BIN\" compose \"${{compose_args[@]}}\"
   fi
 
-  config_json=\"$($REAL_DOCKER_BIN compose \"${{global_opts[@]}}\" config --format json 2>/dev/null || true)\"
+  compose_cmd_opts=(\"${{global_opts[@]}}\")
+  for (( j=0; j<${{#global_opts[@]}}; j++ )); do
+    token=\"${{global_opts[$j]}}\"
+    case \"$token\" in
+      -f|--file)
+        has_file_flag=\"true\"
+        ((j++))
+        ;;
+      --file=*)
+        has_file_flag=\"true\"
+        ;;
+    esac
+  done
+
+  if [[ \"$has_file_flag\" != \"true\" ]]; then
+    for compose_file in compose.yaml compose.yml docker-compose.yaml docker-compose.yml; do
+      if [[ -f \"$compose_file\" ]]; then
+        compose_files+=(\"$compose_file\")
+        break
+      fi
+    done
+
+    for compose_file in compose.override.yaml compose.override.yml docker-compose.override.yaml docker-compose.override.yml; do
+      if [[ -f \"$compose_file\" ]]; then
+        compose_files+=(\"$compose_file\")
+      fi
+    done
+
+    if (( ${{#compose_files[@]}} > 0 )); then
+      compose_cmd_opts+=(--project-directory \"$PWD\")
+      for compose_file in \"${{compose_files[@]}}\"; do
+        compose_cmd_opts+=(-f \"$compose_file\")
+      done
+    fi
+  fi
+
+  config_json=\"$($REAL_DOCKER_BIN compose \"${{compose_cmd_opts[@]}}\" config --format json 2>/dev/null || true)\"
   if [[ -z \"$config_json\" ]]; then
     exec \"$REAL_DOCKER_BIN\" compose \"${{compose_args[@]}}\"
   fi
@@ -324,7 +366,7 @@ __NEXUS_COMPOSE_REWRITE_PY__
     sed -n '1,120p' \"$override_file\" >&2
   fi
 
-  exec \"$REAL_DOCKER_BIN\" compose \"${{global_opts[@]}}\" -f \"$override_file\" \"$subcmd\" \"${{subcmd_args[@]}}\"
+  exec \"$REAL_DOCKER_BIN\" compose \"${{compose_cmd_opts[@]}}\" -f \"$override_file\" \"$subcmd\" \"${{subcmd_args[@]}}\"
 }}
 
 if [[ \"${{1:-}}\" == \"compose\" ]]; then
@@ -394,21 +436,22 @@ wrapper_path = Path('/usr/local/bin/docker')
 backup_path = Path('/usr/local/bin/docker.original-pre-nexus-wrapper')
 marker = b'# nexus-docker-pull-wrapper'
 
-if not wrapper_path.exists():
-    raise SystemExit(0)
-
-if wrapper_path.is_symlink():
-  wrapper_path.unlink()
-  raise SystemExit(0)
-
-existing = wrapper_path.read_bytes()
-if marker in existing:
-  if backup_path.exists():
-    wrapper_path.write_bytes(backup_path.read_bytes())
-    backup_path.unlink()
-    wrapper_path.chmod(0o755)
-  else:
+if wrapper_path.exists():
+  if wrapper_path.is_symlink():
     wrapper_path.unlink()
+  else:
+    existing = wrapper_path.read_bytes()
+    if marker in existing:
+      if backup_path.exists():
+        wrapper_path.write_bytes(backup_path.read_bytes())
+        backup_path.unlink()
+        wrapper_path.chmod(0o755)
+      else:
+        wrapper_path.unlink()
+
+# Keep /usr/local/bin/docker resolvable after uninstall to avoid stale shell-hash failures.
+if not wrapper_path.exists() and Path('/usr/bin/docker').exists():
+  wrapper_path.symlink_to('/usr/bin/docker')
 PY
 }
 
